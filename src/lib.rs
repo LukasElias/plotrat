@@ -3,7 +3,7 @@ struct MathParser {
 
 enum ExprType {
     FunctionDefinition {
-        name: String,
+        name: char,
         param: char,
         body: CalculatableExpr, // your internal expression representation
     },
@@ -22,6 +22,8 @@ enum ExprType {
 
 struct CalculatableExpr(Vec<SimpleToken>);
 
+// Only for parsing the strings by the user
+#[derive(Debug, PartialEq)]
 enum ComplexToken {
     Number(f32),
     Operator(Operator),
@@ -35,6 +37,7 @@ enum ComplexToken {
     Unknown(char),
 }
 
+// For tokens that are simple enough to be in an expression that can get calculated
 enum SimpleToken {
     Number(f32),
     Operator(Operator),
@@ -47,15 +50,17 @@ enum SimpleToken {
     Unknown(char),
 }
 
+#[derive(Debug, PartialEq)]
 enum ComparisonOp {
     LessThan,             // <
-    GreaterThen,          // >
+    GreaterThan,          // >
     LessThanOrEqualTo,    // <=
-    GreaterThenOrEqualTo, // >=
+    GreaterThanOrEqualTo, // >=
     EqualTo,              // =
     NotEqualTo,           // !=
 }
 
+#[derive(Debug, PartialEq)]
 enum Operator {
     Add,
     Sub,
@@ -81,40 +86,122 @@ Rules for when an expression is a function
 
 Steps for parsing a math expression
 
-1. Get the string, for example "g(y)*4=2y-4/10"
-2. Figure out what type of expression this is, e.g. function, equation with unknowns, or maybe a simple equation with a single constant output etc... In this example it would be a function called g, with a variable y
-3. Then simplifying till it's something that can be either plotted or calculated, which would be g(y)=(2y-4/10)/4
-4. Optional, but simplifying that to the simplest form which would be g(y)=y/2-0.1
-5. Then using picking the right implementation for this type of expression which is known since the 2nd step. Fx plotting a function
+1 Get the string, for example "g(y)*4=2y-4/10"
+1.5 Tokenize the input ofc
+2 Figure out what type of expression this is, e.g. function, equation with unknowns, or maybe a simple equation with a single constant output etc... In this example it would be a function called g, with a variable y
+3 Then simplifying till it's something that can be either plotted or calculated, which would be g(y)=(2y-4/10)/4
+4 Optional, but simplifying that to the simplest form which would be g(y)=y/2-0.1
+5 Then using picking the right implementation for this type of expression which is known since the 2nd step. Fx plotting a function
 
 */
 
 
 impl MathParser {
-    pub fn parse(input_str: &str) -> f32{
-        let mut sum = 0.0;
-        for term in input_str.split('+') {
-            let mut product = 1.0;
-            for mul_term in term.split('*') {
-                product *= mul_term.to_string().parse::<f32>().expect("It wasn't a number");
+    pub fn parse(input_str: &str) -> Vec<ComplexToken> {
+        // Tokenize the input to complex tokens
+
+        let mut expr: Vec<ComplexToken> = Vec::new();
+
+        let mut past_numbers = String::new();
+
+        let mut chars = input_str.chars().peekable();
+
+        while let Some(char) = chars.next() {
+            if char.is_ascii_whitespace() {
+                continue;
             }
-            sum += product;
+
+            println!("{}", char);
+
+            if char.is_ascii_digit() || char == '.' {
+                past_numbers.push(char);
+                continue;
+            }
+
+            if !past_numbers.is_empty() {
+                expr.push(ComplexToken::Number(past_numbers.parse::<f32>().unwrap()));
+                past_numbers.clear();
+            }
+
+            // Comparison op check
+            if "<>!".contains(char) {
+                if let Some('=') = chars.peek() {
+                    chars.next().unwrap();
+                    if let Some(op) = ComparisonOp::from_char(char, true) {
+                        expr.push(ComplexToken::ComparisonOp(op));
+                        continue;
+                    }
+                } else {
+                    if let Some(op) = ComparisonOp::from_char(char, false) {
+                        expr.push(ComplexToken::ComparisonOp(op));
+                        continue;
+                    }
+                }
+            } else if char == '=' {
+                expr.push(ComplexToken::ComparisonOp(ComparisonOp::EqualTo));
+                continue;
+            }
+
+            if let Some(op) = Operator::from_char(char) {
+                expr.push(ComplexToken::Operator(op));
+                continue;
+            }
+
+            // TODO:
+            // Variable
+            // Constant
+            // Function
+            // LeftParenthesis
+            // RightParenthesis
+            // Comma
         }
 
-        sum
+        if !past_numbers.is_empty() {
+            expr.push(ComplexToken::Number(past_numbers.parse::<f32>().unwrap()));
+            past_numbers.clear();
+        }
+
+        expr
+    }
+}
+
+impl ComparisonOp {
+    fn from_char(char: char, is_equal: bool) -> Option<Self> {
+        match (char, is_equal) {
+            ('<', true) => Some(Self::LessThanOrEqualTo),
+            ('>', true) => Some(Self::GreaterThanOrEqualTo),
+            ('!', true) => Some(Self::NotEqualTo),
+            ('<', false) => Some(Self::LessThan),
+            ('>', false) => Some(Self::GreaterThan),
+            ('=', false) => Some(Self::EqualTo),
+            _ => None,
+        }
+    }
+}
+
+impl Operator {
+    fn from_char(char: char) -> Option<Self> {
+        match char {
+            '+' => Some(Self::Add),
+            '-' => Some(Self::Sub),
+            '*' => Some(Self::Mul),
+            '/' => Some(Self::Div),
+            '^' => Some(Self::Pow),
+            _ => None,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::MathParser;
+    use crate::MathParser;
 
     #[test]
     fn test_mathparser() {
-        let string = "100*20*11*58+11+22*59+1.5";
+        let string = "!=111=!=*+ - 143276 ^/";
 
         let result = MathParser::parse(string);
 
-        assert_eq!(result, 100.0*20.0*11.0*58.0+11.0+22.0*59.0+1.5);
+        println!("{:?}", result);
     }
 }
